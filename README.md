@@ -260,6 +260,32 @@ go build -o .qa/easytier-access .
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright node tests/browser.cjs
 ```
 
+## 发布二进制到 GitHub Releases
+
+发布包作为 Release 附件上传，`dist/` 继续由 Git 忽略，无需把二进制提交到源码仓库。
+
+本机执行 `make release`，在 `dist/releases/` 生成 Linux AMD64、Linux ARM64、macOS ARM64 三个压缩包和 `SHA256SUMS-版本号`。每个包包含程序、说明、示例配置、部署文件和许可；不会包含运行数据或本地密钥。
+
+仓库已配置 `.github/workflows/release.yml`。先更新 `main.go` 中的版本号、提交并推送，再创建对应标签，例如：
+
+```bash
+git tag v1.3.0
+git push origin v1.3.0
+```
+
+GitHub Actions 会运行 Go 测试和静态检查，构建并上传附件，创建 **Release 草稿**。标签版本必须与程序版本一致，标签不能重复使用。到仓库的 Releases 页面检查草稿后点击 **Publish release**，下载者即可看到附件。GitHub 还会提供该标签对应的源码下载。
+
+工作流使用 GitHub 自动提供的 `GITHUB_TOKEN`，无需额外保存个人 Token。也可手动上传本机生成的包：
+
+```bash
+gh release create v1.3.0 --target main --draft \
+  --title 'EasyTier Access v1.3.0' --generate-notes \
+  dist/releases/easytier-access-1.3.0-*.tar.gz \
+  dist/releases/SHA256SUMS-1.3.0
+```
+
+自动流程和手动方式选择一种，同一标签不要重复创建 Release。
+
 ## 数据与操作边界
 
 - 元数据和管理员密码哈希保存在 `data_dir/manager.json`，每次更新写临时文件、同步磁盘后原子替换；单进程文件锁避免两个面板覆盖同一目录。适合个人/小团队，不支持多副本同时写入。

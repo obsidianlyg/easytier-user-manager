@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Test and package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          export RELEASE_VERSION="${RELEASE_TAG#v}"
+          make test release
+      - name: Create release draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          release_version="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" --verify-tag --draft \
+            --title "EasyTier Access $RELEASE_TAG" --generate-notes \
+            "dist/releases/easytier-access-$release_version-linux-amd64.tar.gz" \
+            "dist/releases/easytier-access-$release_version-linux-arm64.tar.gz" \
+            "dist/releases/easytier-access-$release_version-darwin-arm64.tar.gz" \
+            "dist/releases/SHA256SUMS-$release_version"
