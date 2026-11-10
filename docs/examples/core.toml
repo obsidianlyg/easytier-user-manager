@@ -1,0 +1,14 @@
+hostname = "jp-authority"
+listeners = ["tcp://0.0.0.0:11010", "udp://0.0.0.0:11010"]
+credential_file = "/var/lib/easytier/credentials.json"
+
+[network_identity]
+network_name = "office"
+network_secret = "REPLACE_WITH_YOUR_EXISTING_BUSINESS_NETWORK_SECRET"
+
+[secure_mode]
+enabled = true
+
+[flags]
+private_mode = true
+no_tun = true

@@ -1,0 +1,12 @@
+hostname = "jp-discovery"
+listeners = ["tcp://0.0.0.0:11010", "udp://0.0.0.0:11010"]
+
+[network_identity]
+network_name = "discovery-only"
+network_secret = "REPLACE_WITH_SEPARATE_DISCOVERY_SECRET"
+
+[flags]
+no_tun = true
+private_mode = false
+relay_network_whitelist = ""
+relay_all_peer_rpc = true

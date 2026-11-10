@@ -1,0 +1,20 @@
+# 日本节点作为业务网络正式节点，负责中转与凭据签发。
+# 网络名、主密钥必须替换为现有业务网络的值，不要向员工分发主密钥。
+hostname = "jp-authority"
+listeners = ["tcp://0.0.0.0:11010", "udp://0.0.0.0:11010"]
+credential_file = "/var/lib/easytier/credentials.json"
+
+[network_identity]
+network_name = "office"
+network_secret = "REPLACE_WITH_YOUR_EXISTING_BUSINESS_NETWORK_SECRET"
+
+[secure_mode]
+enabled = true
+
+[flags]
+private_mode = true
+# 纯中转/签发节点无需创建虚拟网卡；若需要访问该节点的虚拟 IP，保留现有 TUN 配置。
+no_tun = true
+
+# RPC 地址通过启动参数明确指定：
+# easytier-core -c /etc/easytier/core.toml --secure-mode true -r 127.0.0.1:15888

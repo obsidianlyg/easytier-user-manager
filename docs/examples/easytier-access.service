@@ -1,0 +1,24 @@
+[Unit]
+Description=EasyTier Access personnel and credential manager
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=easytier-access
+Group=easytier-access
+WorkingDirectory=/opt/easytier-access
+ExecStart=/opt/easytier-access/easytier-access --config /etc/easytier-access/config.json
+Restart=on-failure
+RestartSec=3
+StateDirectory=easytier-access
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target

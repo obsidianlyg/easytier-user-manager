@@ -1,0 +1,27 @@
+# Runtime data, local configuration, and private keys.
+data/
+data-demo/
+/config.json
+node-keys*/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Compiled binaries and release archives.
+/dist/
+/easytier-access
+*.exe
+*.test
+*.out
+*.zip
+*.tar.gz
+
+# Local tools, verification artifacts, and dependencies.
+/.tools/
+/.qa/
+/docs/qa/
+/preview.png
+node_modules/
+.DS_Store

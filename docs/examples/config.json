@@ -1,0 +1,12 @@
+{
+  "listen": "0.0.0.0",
+  "port": 8989,
+  "public_url": "http://vps.obsidianlyg.top:8989",
+  "data_dir": "/var/lib/easytier-access",
+  "cli_path": "/usr/local/bin/easytier-cli",
+  "rpc_portal": "127.0.0.1:15888",
+  "instance_name": "",
+  "network_name": "office",
+  "peer_url": "tcp://vps.obsidianlyg.top:11010",
+  "cli_timeout": 15
+}

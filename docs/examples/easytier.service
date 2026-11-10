@@ -1,0 +1,17 @@
+[Unit]
+Description=EasyTier core relay and credential authority
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/easytier
+ExecStart=/usr/local/bin/easytier-core -c /etc/easytier/core.toml --secure-mode true -r 127.0.0.1:15888
+Restart=on-failure
+RestartSec=3
+UMask=0077
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target
