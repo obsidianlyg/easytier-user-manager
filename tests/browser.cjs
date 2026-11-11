@@ -191,15 +191,14 @@ fs.mkdirSync(qa, { recursive: true });
       await page.locator('#issue-device').fill(device);
       await page.locator('#issue-ttl').selectOption('7');
       await page.locator('#issue-groups').fill('staff,developer');
+      assert.equal(await page.locator('#launch-vpn, #launch-exit').count(),0,'VPN controls must be removed');
       if(device==='QA MacBook Pro') {
         await page.locator('#launch-ip-mode').selectOption('static');
         await page.locator('#launch-ipv4').fill('10.10.10.20/24');
-        await page.locator('#launch-vpn').check();
-        await page.locator('#launch-exit').fill('10.10.10.1');
         await page.screenshot({path:path.join(qa,'launch-options-desktop.png'),fullPage:true});
         await page.setViewportSize({width:375,height:812});
         assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Launch form overflows mobile');
-        await page.locator('#launch-exit').scrollIntoViewIfNeeded();
+        await page.locator('#launch-ipv4').scrollIntoViewIfNeeded();
         await page.locator('#modal').screenshot({path:path.join(qa,'launch-options-mobile.png')});
         await page.setViewportSize({width:1440,height:1100});
       }
@@ -208,11 +207,9 @@ fs.mkdirSync(qa, { recursive: true });
       assert.match(await page.locator('#join-command').innerText(), /DEMO_ONLY_/);
       assert.match(await page.locator('#join-command').innerText(), /--credential/);
       const command=await page.locator('#join-command').innerText();
+      assert.doesNotMatch(command,/--exit-nodes|--manual-routes|--bind-device/);
       if(device==='QA MacBook Pro') {
         assert.match(command,/--ipv4 '10.10.10.20\/24' --dhcp false/);
-        assert.match(command,/--exit-nodes '10.10.10.1'/);
-        assert.match(command,/--manual-routes '0.0.0.0\/1' '128.0.0.0\/1' --bind-device true/);
-        assert.match(await page.locator('.launch-vpn-note').innerText(),/IPv6/);
       } else {
         assert.match(command,/--dhcp true/);
         assert.doesNotMatch(command,/--exit-nodes/);
@@ -223,7 +220,7 @@ fs.mkdirSync(qa, { recursive: true });
       assert.match(toml,/\[network_identity\]/);
       assert.match(toml,/REPLACE_WITH_CREDENTIAL_PRIVATE_KEY/,'Demo TOML must be clearly marked as a template');
       assert.equal(toml.includes('dhcp = false'),device==='QA MacBook Pro');
-      assert.equal(toml.includes('exit_nodes = ["10.10.10.1"]'),device==='QA MacBook Pro');
+      assert.doesNotMatch(toml,/exit_nodes|routes =|bind_device/);
       if(device==='QA MacBook Pro') {
         const downloadPromise=page.waitForEvent('download');
         await page.getByRole('button',{name:'下载 TOML',exact:true}).click();
@@ -241,7 +238,7 @@ fs.mkdirSync(qa, { recursive: true });
     await existingRow.getByRole('button',{name:'启动命令',exact:true}).click();
     const selectedCredential=await page.locator('#launch-credential').inputValue();
     assert.equal(await page.locator('#launch-ipv4').inputValue(),'10.10.10.20/24','Existing credential must remember launch choices');
-    assert.equal(await page.locator('#launch-vpn').isChecked(),true);
+    assert.equal(await page.locator('#launch-vpn, #launch-exit').count(),0);
     await page.getByRole('button',{name:'保存设置并生成命令',exact:true}).click();
     await page.getByRole('heading',{name:'启动命令已生成',exact:true}).waitFor();
     assert.match(await page.locator('#join-command').innerText(),/\$\{EASYTIER_CREDENTIAL:\?/,'Existing credential must offer a secret-free template');
@@ -274,7 +271,7 @@ fs.mkdirSync(qa, { recursive: true });
     assert.equal(file.suggestedFilename(),'client.toml');
     const saved=fs.readFileSync(await file.path(),'utf8');
     assert.ok(saved.includes(browserSecret));
-    const parsed=spawn(process.env.TEST_PYTHON || 'python3',['-c','import sys,tomllib; c=tomllib.loads(sys.stdin.read()); assert c["dhcp"] is False; assert c["flags"]["bind_device"] is True; assert c["routes"] == ["0.0.0.0/1","128.0.0.0/1"]'],{stdio:['pipe','ignore','pipe']});
+    const parsed=spawn(process.env.TEST_PYTHON || 'python3',['-c','import sys,tomllib; c=tomllib.loads(sys.stdin.read()); assert c["dhcp"] is False; assert c["ipv4"] == "10.10.10.20/24"; assert "exit_nodes" not in c and "routes" not in c and "bind_device" not in c["flags"]'],{stdio:['pipe','ignore','pipe']});
     parsed.stdin.end(saved);
     assert.equal(await new Promise(resolve=>parsed.on('close',resolve)),0,'Downloaded config must parse as TOML');
     assert.ok((await page.locator('#toml-command').innerText()).includes(`easytier-core -c client.toml --credential '${browserSecret}'`));
@@ -384,7 +381,7 @@ fs.mkdirSync(qa, { recursive: true });
     await page.clock.runFor(60010);
     assert.equal(syncRequests,loggedOutSync,'Logout must stop monitoring requests');
     assert.equal(peerRequests,loggedOutPeers,'Logout must stop peer requests');
-    console.log('PASS: monitoring, current peers, authenticated personnel matching and manual public key backfill, refresh/pause/retry, focus preservation, search/filter/drilldown, static IP/DHCP, IPv4 VPN routes, existing credential selection/template, TOML switching/download/parsing, X25519 derivation, browser-only secrets, lifecycle, auth, XSS, and 375/768/1024/1440 layouts.');
+    console.log('PASS: monitoring, current peers, authenticated personnel matching and manual public key backfill, refresh/pause/retry, focus preservation, search/filter/drilldown, static IP/DHCP, VPN option removal, existing credential selection/template, TOML switching/download/parsing, X25519 derivation, browser-only secrets, lifecycle, auth, XSS, and 375/768/1024/1440 layouts.');
   } finally {
     if(browser) await browser.close();
     if(server) server.kill('SIGTERM');

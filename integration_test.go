@@ -186,7 +186,6 @@ func TestNativeEasyTierLaunchOptions(t *testing.T) {
 	for _, args := range [][]string{
 		{"--dhcp", "true"},
 		{"--ipv4", "10.10.10.20/24", "--dhcp", "false"},
-		{"--dhcp", "true", "--exit-nodes", "10.10.10.1", "--manual-routes", "0.0.0.0/1", "128.0.0.0/1", "--bind-device", "true"},
 	} {
 		full := append([]string{"--check-config", "--config-file", configPath, "--network-name", "isolated-launch-check", "--secure-mode", "true"}, args...)
 		if err := exec.Command(corePath, full...).Run(); err != nil {
@@ -195,18 +194,16 @@ func TestNativeEasyTierLaunchOptions(t *testing.T) {
 	}
 	secret := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	for _, fixed := range []bool{false, true} {
-		for _, vpn := range []bool{false, true} {
-			options := LaunchOptions{IPMode: "dhcp", VPN: vpn, ExitNode: "10.10.10.1"}
-			if fixed {
-				options.IPMode, options.IPv4 = "static", "10.10.10.20/24"
-			}
-			text := launchTOML(Config{NetworkName: "isolated-launch-check", PeerURL: "tcp://127.0.0.1:11010"}, secret, options)
-			if err := os.WriteFile(configPath, []byte(text), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := exec.Command(corePath, "--check-config", "-c", configPath).Run(); err != nil {
-				t.Fatal("official core rejected generated TOML")
-			}
+		options := LaunchOptions{IPMode: "dhcp"}
+		if fixed {
+			options.IPMode, options.IPv4 = "static", "10.10.10.20/24"
+		}
+		text := launchTOML(Config{NetworkName: "isolated-launch-check", PeerURL: "tcp://127.0.0.1:11010"}, secret, options)
+		if err := os.WriteFile(configPath, []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := exec.Command(corePath, "--check-config", "-c", configPath).Run(); err != nil {
+			t.Fatal("official core rejected generated TOML")
 		}
 	}
 }

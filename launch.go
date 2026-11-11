@@ -9,10 +9,8 @@ import (
 )
 
 type LaunchOptions struct {
-	IPMode   string `json:"ip_mode"`
-	IPv4     string `json:"ipv4"`
-	VPN      bool   `json:"vpn"`
-	ExitNode string `json:"exit_node"`
+	IPMode string `json:"ip_mode"`
+	IPv4   string `json:"ipv4"`
 }
 
 func launchIPv4(value string, allowPrefix bool) (netip.Addr, bool) {
@@ -41,19 +39,6 @@ func validateLaunch(o *LaunchOptions) error {
 		}
 	} else {
 		o.IPv4 = ""
-	}
-	o.ExitNode = strings.TrimSpace(o.ExitNode)
-	if o.VPN {
-		exit, ok := launchIPv4(o.ExitNode, false)
-		if !ok {
-			return problem(400, "invalid_launch", "VPN 模式需要日本出口节点的 EasyTier 虚拟 IPv4，不是公网地址或域名。")
-		}
-		client, _ := launchIPv4(o.IPv4, true)
-		if client == exit {
-			return problem(400, "invalid_launch", "设备虚拟 IP 不能与出口节点虚拟 IP 相同。")
-		}
-	} else {
-		o.ExitNode = ""
 	}
 	return nil
 }
@@ -89,11 +74,6 @@ func launchCommand(c Config, secret string, o LaunchOptions) string {
 	} else {
 		command += " --dhcp true"
 	}
-	if o.VPN {
-		// Exit-node selection alone does not install system default routes.
-		// Bind overlay connections to the physical interface to avoid routing loops.
-		command += " --exit-nodes " + shellQuote(o.ExitNode) + " --manual-routes '0.0.0.0/1' '128.0.0.0/1' --bind-device true"
-	}
 	return command
 }
 
@@ -128,16 +108,10 @@ func launchTOML(c Config, secret string, o LaunchOptions) string {
 	if o.IPMode == "static" {
 		fmt.Fprintf(&b, "ipv4 = %s\n", tomlString(o.IPv4))
 	}
-	if o.VPN {
-		fmt.Fprintf(&b, "exit_nodes = [%s]\nroutes = [\"0.0.0.0/1\", \"128.0.0.0/1\"]\n", tomlString(o.ExitNode))
-	}
 	fmt.Fprintf(&b, "\n[network_identity]\nnetwork_name = %s\n", tomlString(c.NetworkName))
 	fmt.Fprintf(&b, "\n[[peer]]\nuri = %s\n", tomlString(c.PeerURL))
 	fmt.Fprintf(&b, "\n[secure_mode]\nenabled = true\nlocal_private_key = %s\nlocal_public_key = %s\n", tomlString(private), tomlString(public))
 	b.WriteString("\n[flags]\nno_tun = false\n")
-	if o.VPN {
-		b.WriteString("bind_device = true\n")
-	}
 	return b.String()
 }
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/ecdh"
 	"encoding/base64"
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,16 +19,12 @@ func TestLaunchValidation(t *testing.T) {
 	}{
 		{"default_dhcp", LaunchOptions{}, false},
 		{"static", LaunchOptions{IPMode: "static", IPv4: "10.10.10.20/24"}, false},
-		{"vpn_dhcp", LaunchOptions{VPN: true, ExitNode: "10.10.10.1"}, false},
 		{"bad_mode", LaunchOptions{IPMode: "typo"}, true},
 		{"missing_ip", LaunchOptions{IPMode: "static"}, true},
 		{"ipv6", LaunchOptions{IPMode: "static", IPv4: "::1"}, true},
 		{"loopback", LaunchOptions{IPMode: "static", IPv4: "127.0.0.1/24"}, true},
 		{"unspecified", LaunchOptions{IPMode: "static", IPv4: "0.0.0.0"}, true},
 		{"shell_injection", LaunchOptions{IPMode: "static", IPv4: "10.0.0.1;id"}, true},
-		{"missing_exit", LaunchOptions{VPN: true}, true},
-		{"exit_cidr", LaunchOptions{VPN: true, ExitNode: "10.0.0.1/24"}, true},
-		{"same_ip", LaunchOptions{IPMode: "static", IPv4: "10.0.0.1/24", VPN: true, ExitNode: "10.0.0.1"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,8 +34,8 @@ func TestLaunchValidation(t *testing.T) {
 			}
 		})
 	}
-	opts := LaunchOptions{IPv4: "old value", ExitNode: "old value"}
-	if err := validateLaunch(&opts); err != nil || opts.IPMode != "dhcp" || opts.IPv4 != "" || opts.ExitNode != "" {
+	opts := LaunchOptions{IPv4: "old value"}
+	if err := validateLaunch(&opts); err != nil || opts.IPMode != "dhcp" || opts.IPv4 != "" {
 		t.Fatal("disabled fields were not normalized")
 	}
 }
@@ -49,27 +47,25 @@ func TestLaunchTOMLKeysAndOptions(t *testing.T) {
 	public := base64.StdEncoding.EncodeToString(key.PublicKey().Bytes())
 	config := Config{NetworkName: "office\"\n\\network", PeerURL: "tcp://127.0.0.1:11010"}
 	for _, fixed := range []bool{false, true} {
-		for _, vpn := range []bool{false, true} {
-			opts := LaunchOptions{IPMode: "dhcp", VPN: vpn, ExitNode: "10.10.10.1"}
-			if fixed {
-				opts.IPMode = "static"
-				opts.IPv4 = "10.10.10.20/24"
+		opts := LaunchOptions{IPMode: "dhcp"}
+		if fixed {
+			opts.IPMode = "static"
+			opts.IPv4 = "10.10.10.20/24"
+		}
+		text := launchTOML(config, secret, opts)
+		for _, want := range []string{"local_private_key = " + tomlString(secret), "local_public_key = " + tomlString(public), "network_name = " + tomlString(config.NetworkName), "[[peer]]\nuri = " + tomlString(config.PeerURL)} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("TOML is missing expected field")
 			}
-			text := launchTOML(config, secret, opts)
-			for _, want := range []string{"local_private_key = " + tomlString(secret), "local_public_key = " + tomlString(public), "network_name = " + tomlString(config.NetworkName), "[[peer]]\nuri = " + tomlString(config.PeerURL)} {
-				if !strings.Contains(text, want) {
-					t.Fatalf("TOML is missing expected field")
-				}
-			}
-			if strings.Contains(text, "network_secret") || strings.Contains(text, "REPLACE_WITH_") {
-				t.Fatal("credential config contains master secret or placeholder")
-			}
-			if strings.Contains(text, "dhcp = false") != fixed || strings.Contains(text, "ipv4 = ") != fixed {
-				t.Fatal("TOML IP mode differs from selected options")
-			}
-			if strings.Contains(text, "exit_nodes = ") != vpn || strings.Contains(text, "routes = ") != vpn || strings.Contains(text, "bind_device = true") != vpn {
-				t.Fatal("TOML VPN mode differs from selected options")
-			}
+		}
+		if strings.Contains(text, "network_secret") || strings.Contains(text, "REPLACE_WITH_") {
+			t.Fatal("credential config contains master secret or placeholder")
+		}
+		if strings.Contains(text, "dhcp = false") != fixed || strings.Contains(text, "ipv4 = ") != fixed {
+			t.Fatal("TOML IP mode differs from selected options")
+		}
+		if strings.Contains(text, "exit_nodes") || strings.Contains(text, "routes = ") || strings.Contains(text, "bind_device") {
+			t.Fatal("TOML must not include VPN settings")
 		}
 	}
 	for _, secret := range []string{"", "DEMO_ONLY_TEST"} {
@@ -80,17 +76,58 @@ func TestLaunchTOMLKeysAndOptions(t *testing.T) {
 	}
 }
 
+func TestLegacyVPNLaunchSettingsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `{"version":1,"credentials":[{"id":"legacy","launch":{"ip_mode":"static","ipv4":"10.10.10.20/24","vpn":true,"exit_node":"10.10.10.1"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "manager.json"), []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := store.Snapshot().Credentials[0].Launch
+	if options != (LaunchOptions{IPMode: "static", IPv4: "10.10.10.20/24"}) {
+		t.Fatal("legacy data lost supported launch options")
+	}
+	for _, text := range []string{launchCommand(Config{}, "", options), launchTOML(Config{}, "", options)} {
+		for _, field := range []string{"exit-nodes", "manual-routes", "bind-device", "exit_nodes", "routes =", "bind_device"} {
+			if strings.Contains(text, field) {
+				t.Fatalf("legacy data generated VPN settings: %s", field)
+			}
+		}
+	}
+	if err := store.Update(func(*State) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		Credentials []struct {
+			Launch map[string]any `json:"launch"`
+		} `json:"credentials"`
+	}
+	if err := json.Unmarshal(bytes, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Credentials[0].Launch["vpn"] != nil || saved.Credentials[0].Launch["exit_node"] != nil {
+		t.Fatal("saving legacy data retained VPN settings")
+	}
+}
+
 func TestLaunchSettingsPersistWithoutPrivateCredential(t *testing.T) {
 	m, _ := testManager(t)
 	p := addPerson(t, m)
 	id := issue(t, m, p)
-	opts := LaunchOptions{IPMode: "static", IPv4: "10.10.10.20/24", VPN: true, ExitNode: "10.10.10.1"}
+	opts := LaunchOptions{IPMode: "static", IPv4: "10.10.10.20/24"}
 	result, err := m.SaveLaunch(context.Background(), id, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	command := result["join_command"].(string)
-	for _, fragment := range []string{"--ipv4 '10.10.10.20/24'", "--dhcp false", "--exit-nodes '10.10.10.1'", "${EASYTIER_CREDENTIAL:?"} {
+	for _, fragment := range []string{"--ipv4 '10.10.10.20/24'", "--dhcp false", "${EASYTIER_CREDENTIAL:?"} {
 		if !strings.Contains(command, fragment) {
 			t.Fatalf("missing launch option: %s", fragment)
 		}

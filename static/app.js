@@ -323,18 +323,16 @@ function peopleOptions(selected='') {
 }
 
 function launchFields(options={}) {
-  const fixed=options.ip_mode==='static',vpn=!!options.vpn;
+  const fixed=options.ip_mode==='static';
   return `<div class="launch-options"><h3>设备启动方式</h3>
     <div class="field"><label for="launch-ip-mode">虚拟 IP 分配</label><select id="launch-ip-mode" name="ip_mode"><option value="dhcp" ${!fixed?'selected':''}>自动分配（DHCP）</option><option value="static" ${fixed?'selected':''}>固定虚拟 IP</option></select></div>
     <div class="field" id="launch-ip-field" ${!fixed?'hidden':''}><label for="launch-ipv4">设备虚拟 IPv4</label><input id="launch-ipv4" name="ipv4" value="${e(options.ipv4||'')}" placeholder="例如：10.10.10.20/24" maxlength="32" ${fixed?'required':'disabled'}><small>固定地址应与业务网络一致，避免和现有设备冲突。</small></div>
-    <label class="checkbox-field"><input id="launch-vpn" type="checkbox" name="vpn" ${vpn?'checked':''}><span>通过日本节点上网（VPN）<small>开启后接管 IPv4 上网流量；IPv6 需在设备上另行处理。</small></span></label>
-    <div class="field" id="launch-exit-field" ${!vpn?'hidden':''}><label for="launch-exit">日本出口节点的虚拟 IPv4</label><input id="launch-exit" name="exit_node" value="${e(options.exit_node||'')}" placeholder="例如：10.10.10.1" maxlength="32" ${vpn?'required':'disabled'}><small>填写日本节点在 EasyTier 网络中的 IP；公网 IP 23.27.52.254 不是这里的出口地址。</small></div>
     <p class="form-note">这些选项生成设备启动参数，不会锁定凭据允许使用的 IP，也不会远程更改已运行设备。</p></div>`;
 }
 
 function launchPayload(form) {
   const values=new FormData(form);
-  return {ip_mode:values.get('ip_mode'),ipv4:String(values.get('ipv4')||'').trim(),vpn:values.has('vpn'),exit_node:String(values.get('exit_node')||'').trim()};
+  return {ip_mode:values.get('ip_mode'),ipv4:String(values.get('ipv4')||'').trim()};
 }
 
 function canLaunch(c) {
@@ -376,7 +374,7 @@ function openIssue(pid='') {
   openModal('签发设备凭据',`
     <div class="field"><label for="issue-person">归属人员 <span class="muted">*</span></label><select id="issue-person" name="person_id" required><option value="">选择一位人员</option>${peopleOptions(pid)}</select></div>
     <div class="field"><label for="issue-device">设备名称 <span class="muted">*</span></label><input id="issue-device" name="device_name" required maxlength="100" placeholder="例如：张三的 MacBook Pro" autocomplete="off"></div>
-    <div class="field-row"><div class="field"><label for="issue-ttl">有效期</label><select id="issue-ttl" name="ttl_days"><option value="1">1 天</option><option value="7">7 天</option><option value="30" selected>30 天</option><option value="90">90 天</option><option value="365">365 天</option></select></div><div class="field"><label for="issue-groups">ACL 组</label><input id="issue-groups" name="groups" value="staff" placeholder="staff, developer" maxlength="500"><small>多个组以英文逗号分隔。</small></div></div>
+    <div class="field-row"><div class="field"><label for="issue-ttl">有效期</label><select id="issue-ttl" name="ttl_days"><option value="1">1 天</option><option value="7">7 天</option><option value="30" selected>30 天</option><option value="90">90 天</option><option value="365">365 天</option></select></div><div class="field"><label for="issue-groups">ACL 组</label><input id="issue-groups" name="groups" value="staff" placeholder="staff, developer" maxlength="500"><small>凭据的身份标签，多个组以英文逗号分隔。需在目标节点配置 ACL 规则才会限制访问；本面板暂不管理规则。</small></div></div>
     ${launchFields()}
     <details class="advanced"><summary>高级权限</summary><label class="checkbox-field"><input type="checkbox" name="allow_relay"><span>允许此设备参与中转<small>默认关闭，只影响这台设备转发其他节点流量。</small></span></label><label class="checkbox-field"><input type="checkbox" name="reusable"><span>允许多设备同时使用此凭据<small>建议保持关闭，为每台设备独立签发。</small></span></label><div class="field"><label for="issue-cidrs">允许宣告的子网代理网段</label><input id="issue-cidrs" name="cidrs" placeholder="例如：192.168.10.0/24"><small>留空则不允许宣告子网代理；多个网段以英文逗号分隔。</small></div></details>
     <p class="form-note">签发后会显示设备接入命令。组名只附加身份标签，目标节点仍需配置相应 ACL。</p>`, '签发凭据', async form=>{
@@ -399,7 +397,6 @@ function showIssued() {
       ${c.toml_config.includes('REPLACE_WITH_CREDENTIAL_PRIVATE_KEY')?'<p class="form-note launch-help">这是配置模板，需填入原凭据私钥和匹配的公钥。可在上一页粘贴真实凭据后自动生成两者；演示凭据无法使用。</p>':''}
       <span class="field-label launch-help">配套启动命令（Bash / Zsh）</span><pre class="secret-box" id="toml-command">${e(c.toml_command)}</pre><button class="btn small" data-action="copy-toml-command">${icon('copy')}复制 TOML 启动命令</button>
       <p class="form-note launch-help">EasyTier 2.6.4 必须通过 --credential 指定凭据身份，仅运行 -c client.toml 无法完成凭据认证。请使用配套命令，不额外传入 --secure-mode true。含私钥的文件应仅允许自己读取（Linux/macOS 可执行 chmod 600 client.toml）。</p></section>
-    ${c.launch?.vpn?`<div class="launch-vpn-note"><h3>VPN 出口准备</h3><p>日本节点必须有虚拟 IP <code>${e(c.launch.exit_node)}</code>，并在 core 的 <code>[flags]</code> 中设置 <code>enable_exit_node = true</code>。</p><p>命令会接管 IPv4 路由，需要管理员权限和可用 TUN。若要确保全部上网流量经日本节点，需在客户端停用未经过 VPN 的 IPv6，并核实 DNS 与公网出口。命令生成后，设备仍需实际运行才能生效。</p></div>`:''}
     <div class="helper-line">${icon('info')}<span>在设备原有 EasyTier 配置中使用此凭据，接入时无需分发网络主密钥。</span></div>`);
 }
 
@@ -518,9 +515,6 @@ document.addEventListener('change',event=>{
   if(event.target.id==='status-filter') { filter=event.target.value;updateTable(); }
   if(event.target.id==='launch-ip-mode') {
     const fixed=event.target.value==='static';$('#launch-ip-field').hidden=!fixed;$('#launch-ipv4').disabled=!fixed;$('#launch-ipv4').required=fixed;
-  }
-  if(event.target.id==='launch-vpn') {
-    const vpn=event.target.checked;$('#launch-exit-field').hidden=!vpn;$('#launch-exit').disabled=!vpn;$('#launch-exit').required=vpn;
   }
   if(event.target.id==='launch-credential') {
     $('#launch-fields').innerHTML=launchFields(credentialByID(event.target.value).launch);$('#launch-secret').value='';

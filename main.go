@@ -22,7 +22,7 @@ import (
 //go:embed static/*
 var static embed.FS
 
-const version = "1.4.0"
+const version = "1.4.1"
 
 func run() error {
 	command := "serve"

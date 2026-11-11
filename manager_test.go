@@ -301,6 +301,14 @@ func TestHTTPAuthenticationCSRFOriginAndAssets(t *testing.T) {
 	if status != 200 || !strings.Contains(launch["join_command"].(string), "${EASYTIER_CREDENTIAL:?") || launch["credential_secret"] != nil {
 		t.Fatalf("launch template response incorrect: %d", status)
 	}
+	for _, field := range []string{"--exit-nodes", "--manual-routes", "--bind-device", "exit_nodes", "routes =", "bind_device"} {
+		if strings.Contains(launch["join_command"].(string), field) || strings.Contains(launch["toml_config"].(string), field) {
+			t.Fatalf("legacy HTTP launch request retained VPN field: %s", field)
+		}
+	}
+	if options := launch["launch"].(map[string]any); options["vpn"] != nil || options["exit_node"] != nil {
+		t.Fatal("legacy HTTP launch fields must be discarded")
+	}
 	resp, err := client.Get(server.URL + "/")
 	if err != nil {
 		t.Fatal(err)
