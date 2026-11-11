@@ -377,11 +377,12 @@ func (w *Web) route(out http.ResponseWriter, r *http.Request) error {
 				var input struct {
 					PersonID   string `json:"person_id"`
 					DeviceName string `json:"device_name"`
+					PublicKey  string `json:"public_key"`
 				}
 				if err := decodeBody(out, r, &input); err != nil {
 					return err
 				}
-				if err := w.Manager.Assign(id, input.PersonID, input.DeviceName); err != nil {
+				if err := w.Manager.Assign(id, input.PersonID, input.DeviceName, input.PublicKey); err != nil {
 					return err
 				}
 				writeJSON(out, 200, map[string]bool{"assigned": true})

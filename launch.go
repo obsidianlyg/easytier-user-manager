@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ecdh"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/netip"
@@ -116,11 +114,8 @@ func launchTOMLCommand(secret string) string {
 
 func launchTOML(c Config, secret string, o LaunchOptions) string {
 	private, public := "REPLACE_WITH_CREDENTIAL_PRIVATE_KEY", "REPLACE_WITH_MATCHING_PUBLIC_KEY"
-	if raw, err := base64.StdEncoding.DecodeString(secret); err == nil && len(raw) == 32 {
-		if key, err := ecdh.X25519().NewPrivateKey(raw); err == nil {
-			private = secret
-			public = base64.StdEncoding.EncodeToString(key.PublicKey().Bytes())
-		}
+	if key := credentialPublicKey(secret); key != "" {
+		private, public = secret, key
 	}
 	var b strings.Builder
 	b.WriteString("# 保存为 client.toml，使用面板提供的 TOML 配套启动命令。\n")

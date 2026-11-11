@@ -51,7 +51,7 @@ func TestNativeEasyTierCredentialLifecycle(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	cli := &CLI{Config: Config{CLIPath: cliPath, RPCPortal: rpc, CLITimeout: 5}}
+	cli := &CLI{Config: Config{CLIPath: cliPath, RPCPortal: rpc, NetworkName: "access-integration", CLITimeout: 5}}
 	ctx := context.Background()
 	for {
 		_, err = cli.List(ctx)
@@ -114,17 +114,17 @@ func TestNativeEasyTierCredentialLifecycle(t *testing.T) {
 		t.Fatal("native peer synchronization:", err)
 	}
 	peerSnapshot := m.PeerSnapshot()
-	local, direct := false, false
+	direct := false
 	for _, peer := range peerSnapshot.Items {
-		if peer.Status == "local" {
-			local = true
-		}
 		if peer.Hostname == "toml-credential-client" && peer.Status == "direct" {
 			direct = true
+			if peer.PersonID != p.ID || peer.CredentialID != cid || peer.IdentityStatus != "verified" || peer.BindingSource != "issued" {
+				t.Fatalf("native authenticated identity did not match issued credential: %+v", peer)
+			}
 		}
 	}
-	if !peerSnapshot.Connection.Connected || !local || !direct {
-		t.Fatal("native peer list did not identify local and direct nodes")
+	if !peerSnapshot.Connection.Connected || len(peerSnapshot.Items) != 1 || !direct {
+		t.Fatal("native peer list did not identify the connected remote node")
 	}
 	if err = m.Sync(ctx); err != nil {
 		t.Fatal("real synchronization:", err)
@@ -156,6 +156,21 @@ func TestNativeEasyTierCredentialLifecycle(t *testing.T) {
 	}
 	if _, err = os.Stat(credentialPath); err != nil {
 		t.Fatal("core credential persistence file missing")
+	}
+	_ = client.Process.Kill()
+	_ = client.Wait()
+	deadline = time.Now().Add(6 * time.Second)
+	for {
+		if err := m.SyncPeers(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if len(m.PeerSnapshot().Items) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("disconnected peer retained in current node list")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

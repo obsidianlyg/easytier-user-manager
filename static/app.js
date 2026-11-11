@@ -10,7 +10,7 @@ let monitorTimer = null, monitorStatusTimer = null, autoRefresh = true, refreshE
 const titles = {peers:'节点状态',monitor:'监控看板',people:'人员管理',credentials:'凭据管理',audit:'操作记录',settings:'连接设置'};
 const personStates = {active:['在职','positive'],revoking:['撤权中','warning'],offboarded:['已离职','']};
 const credentialStates = {active:['有效','positive'],expired:['已到期',''],revoked:['已撤销',''],missing:['节点未发现','warning'],issuing:['签发中','warning'],issue_unconfirmed:['签发待核实','warning'],revoking:['撤销中','warning'],revoke_failed:['撤销失败','negative']};
-const auditNames = {demo_seed:'初始化演示',launch_updated:'更新启动方式',admin_initialized:'设置管理员',admin_login:'管理员登录',person_saved:'新增人员',person_updated:'编辑人员',issue_requested:'请求签发',issue_failed:'签发待核实',credential_issued:'签发凭据',revoke_requested:'请求撤销',revoke_failed:'撤销失败',credential_revoked:'撤销凭据',credential_assigned:'关联人员',offboard_requested:'开始离职撤权',offboard_partial:'离职撤权未完成',person_offboarded:'完成离职撤权',person_restored:'恢复人员'};
+const auditNames = {credential_key_registered:'补录凭据公钥',demo_seed:'初始化演示',launch_updated:'更新启动方式',admin_initialized:'设置管理员',admin_login:'管理员登录',person_saved:'新增人员',person_updated:'编辑人员',issue_requested:'请求签发',issue_failed:'签发待核实',credential_issued:'签发凭据',revoke_requested:'请求撤销',revoke_failed:'撤销失败',credential_revoked:'撤销凭据',credential_assigned:'关联人员',offboard_requested:'开始离职撤权',offboard_partial:'离职撤权未完成',person_offboarded:'完成离职撤权',person_restored:'恢复人员'};
 
 function badge(status, kind = 'credential') {
   const [label, tone] = (kind === 'person' ? personStates : credentialStates)[status] || [status,''];
@@ -112,7 +112,7 @@ function banners() {
 function syncButton() { if(view==='peers') return peerSyncButton(); return `<button class="btn secondary-label ${synchronizing?'spin':''}" data-action="sync" ${synchronizing?'disabled':''}>${icon('refresh')}${synchronizing?'同步中…':'同步节点'}</button>`; }
 function renderView() {
   const main = $('#main-content');
-  const descriptions = {peers:'查看当前网络的节点 IP、连接路径、链路质量与最后发现时间。',monitor:'查看已登记人员、设备授权与需要跟进的变更。',people:'将设备凭据关联到具体人员，入职授权、离职撤权都在这里完成。',credentials:'查看节点入网凭据，管理有效期、设备归属与授权状态。',audit:'签发、撤销和人员变更均有记录，凭据私钥不会写入日志。',settings:'确认管理节点与业务网络，检查面板和 EasyTier 的连接。'};
+  const descriptions = {peers:'查看当前连接的节点、所属人员、虚拟 IP 与链路状态。',monitor:'查看已登记人员、设备授权与需要跟进的变更。',people:'将设备凭据关联到具体人员，入职授权、离职撤权都在这里完成。',credentials:'查看节点入网凭据，管理有效期、设备归属与授权状态。',audit:'签发、撤销和人员变更均有记录，凭据私钥不会写入日志。',settings:'确认管理节点与业务网络，检查面板和 EasyTier 的连接。'};
   main.innerHTML = `<div class="page-header"><div><h1>${titles[view]}</h1><p>${descriptions[view]}</p></div><div class="actions">${syncButton()}${view==='people'?`<button class="btn primary" data-action="add-person">${icon('plus')}新增人员</button>`:view==='credentials'?`<button class="btn primary" data-action="issue">${icon('plus')}签发凭据</button>`:''}</div></div>
     <div id="view-banners">${banners()}</div>${view==='people'||view==='credentials'?stats():''}<div id="view-content"></div>`;
   if (view==='peers') return renderPeers();
@@ -435,11 +435,13 @@ function openOffboard(id) {
   },true);
 }
 
+const credentialScope=()=>[data.config.rpc_portal,data.config.instance_name||'',data.config.network_name].join('\n');
+
 function openAssign(id) {
   const c=credentialByID(id);
   if(!data.people.some(p=>p.status==='active')) { toast('请先添加在职人员',true);return; }
-  openModal('编辑凭据归属',`<div class="field"><label for="assign-person">归属人员</label><select id="assign-person" name="person_id" required><option value="">选择一位人员</option>${peopleOptions(c.person_id)}</select></div><div class="field"><label for="assign-device">设备名称</label><input id="assign-device" name="device_name" value="${e(c.device_name)}" required maxlength="100"></div><p class="form-note">修改归属只更新管理记录，不改变节点上的凭据权限和有效期。</p>`, '保存归属', async form=>{
-    await api(`/api/credentials/${id}/assign`,Object.fromEntries(new FormData(form)));modal.close();await reload();toast('凭据归属已更新');
+  openModal('编辑凭据归属',`<div class="field"><label for="assign-person">归属人员</label><select id="assign-person" name="person_id" required><option value="">选择一位人员</option>${peopleOptions(c.person_id)}</select></div><div class="field"><label for="assign-device">设备名称</label><input id="assign-device" name="device_name" value="${e(c.device_name)}" required maxlength="100"></div><details class="advanced"><summary>节点身份公钥</summary><div class="field"><label for="assign-public-key">凭据公钥（可选）</label><input id="assign-public-key" name="public_key" class="mono" maxlength="100" value="${e(c.public_key_scope===credentialScope()?c.public_key||'':'')}" ${c.public_key_scope===credentialScope()&&c.public_key?'readonly':''} placeholder="client.toml 中的 local_public_key"><small>新签发凭据自动登记。旧凭据需核对后补录，已登记公钥不能覆盖。</small></div>${c.public_key_scope!==credentialScope()||!c.public_key?'<div class="field"><label for="assign-key-secret">用原凭据在本机提取（可选）</label><input id="assign-key-secret" type="password" autocomplete="off" maxlength="100"><small>私钥不上传，只发送提取后的公钥。</small></div><button class="btn small" type="button" data-action="derive-binding-key">提取公钥</button>':''}</details><p class="form-note">修改归属只更新管理记录，不改变节点上的凭据权限和有效期。补录公钥由管理员确认对应关系。</p>`, '保存归属', async form=>{
+    await api(`/api/credentials/${id}/assign`,Object.fromEntries(new FormData(form)));modal.close();if(view==='peers') peerData=await api('/api/peers');await reload();toast('凭据归属已更新');
   });
 }
 
@@ -457,6 +459,9 @@ document.addEventListener('click',async event=>{
   const {action,id}=button.dataset;
   try {
     if(action==='nav') { view=button.dataset.view;search='';filter='all';shell();if(view==='peers') await synchronizePeers(); }
+    else if(action==='bind-peer') openPeerBind(button.dataset.id);
+    else if(action==='peer-person') {await reload();openPerson(button.dataset.id);}
+    else if(action==='derive-binding-key') {const key=window.easytierCredentialPublicKey($('#assign-key-secret',modal).value.trim());$('#assign-public-key',modal).value=key;$('#assign-key-secret',modal).value='';toast('已提取公钥，保存时仅发送公钥');}
     else if(action==='sync-peers') await synchronizePeers();
     else if(action==='sync') await synchronize();
     else if(action==='auto-refresh') { autoRefresh=!autoRefresh;if(view==='peers') updatePeerStatus();else updateMonitorStatus();scheduleMonitor(); }

@@ -86,6 +86,9 @@ type Person struct {
 }
 
 type Credential struct {
+	PublicKey         string        `json:"public_key,omitempty"`
+	PublicKeyScope    string        `json:"public_key_scope,omitempty"`
+	PublicKeySource   string        `json:"public_key_source,omitempty"`
 	ID                string        `json:"id"`
 	PersonID          string        `json:"person_id"`
 	DeviceName        string        `json:"device_name"`

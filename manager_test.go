@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,7 +37,12 @@ func (b *fakeBackend) Generate(ctx context.Context, id string, o IssueOptions) (
 	if b.ambiguousGenerate {
 		return "", problem(503, "cli_timeout", "test timeout after remote generation")
 	}
-	return "test-private-credential-do-not-persist", nil
+	return fakeCredentialSecret(id), nil
+}
+
+func fakeCredentialSecret(id string) string {
+	raw := sha256.Sum256([]byte(id))
+	return base64.StdEncoding.EncodeToString(raw[:])
 }
 func (b *fakeBackend) Revoke(ctx context.Context, id string) error {
 	if b.failRevoke[id] {
@@ -131,8 +138,13 @@ func TestUnknownIssuanceIsTrackedAndSecretNeverPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(bytes), "test-private-credential-do-not-persist") || strings.Contains(string(bytes), "credential_secret") {
+	if strings.Contains(string(bytes), "credential_secret") {
 		t.Fatal("secret persisted")
+	}
+	for _, c := range m.Store.Snapshot().Credentials {
+		if strings.Contains(string(bytes), fakeCredentialSecret(c.ID)) {
+			t.Fatal("private credential persisted")
+		}
 	}
 }
 
@@ -255,7 +267,7 @@ func TestHTTPAuthenticationCSRFOriginAndAssets(t *testing.T) {
 		t.Fatal("peer sync accepted missing CSRF")
 	}
 	status, peerState := request("POST", "/api/peers/sync", `{}`, csrf, server.URL)
-	if status != 200 || len(peerState["items"].([]any)) != 2 {
+	if status != 200 || len(peerState["items"].([]any)) != 1 {
 		t.Fatal("authorized peer sync failed")
 	}
 	status, _ = request("POST", "/api/people", `{"name":"staff"}`, "", server.URL)

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -58,7 +57,7 @@ func (b *fakePeerBackend) ListPeers(context.Context) ([]Peer, error) {
 	return append([]Peer{}, b.peers...), b.peerError
 }
 
-func TestPeerHistoryFailureRestartAndScope(t *testing.T) {
+func TestCurrentPeersDropDisconnectedHistoryAndHideFailedSnapshot(t *testing.T) {
 	m, credentials := testManager(t)
 	b := &fakePeerBackend{fakeBackend: credentials, peers: []Peer{
 		{ID: "1", Hostname: "server", Cost: "Local"},
@@ -70,7 +69,7 @@ func TestPeerHistoryFailureRestartAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := m.PeerSnapshot()
-	if !first.Connection.Connected || len(first.Items) != 3 || first.Connection.LastSync == 0 {
+	if !first.Connection.Connected || len(first.Items) != 2 || first.Connection.LastSync == 0 {
 		t.Fatal("peer sync did not produce a fresh snapshot")
 	}
 	b.peerError = problem(503, "unavailable", "peer service unavailable")
@@ -78,8 +77,8 @@ func TestPeerHistoryFailureRestartAndScope(t *testing.T) {
 		t.Fatal("expected peer synchronization failure")
 	}
 	failed := m.PeerSnapshot()
-	if failed.Connection.Connected || failed.Connection.Error == "" || failed.Connection.LastSync != first.Connection.LastSync || !reflect.DeepEqual(failed.Items, first.Items) {
-		t.Fatal("failed sync must retain peer states and timestamps")
+	if failed.Connection.Connected || failed.Connection.Error == "" || failed.Connection.LastSync != first.Connection.LastSync || len(failed.Items) != 0 {
+		t.Fatal("failed sync must hide unconfirmed connections")
 	}
 	b.peerError = nil
 	b.peers = []Peer{b.peers[0], {ID: "4", Hostname: "same-name", IPv4: "10.0.0.2", Cost: "p2p"}}
@@ -91,16 +90,16 @@ func TestPeerHistoryFailureRestartAndScope(t *testing.T) {
 	for _, p := range last.Items {
 		items[p.ID] = p
 	}
-	if len(items) != 4 || items["2"].Status != "missing" || items["2"].IPv4 != "10.0.0.2" || items["2"].LastSeen == 0 || items["2"].RX != "" || items["2"].Latency != "" || items["4"].Status != "direct" {
-		t.Fatal("history must preserve missing peer identity without stale metrics or guessing by IP/name")
+	if len(items) != 1 || items["4"].Status != "direct" || len(m.Store.Snapshot().PeerHistory.Items) != 1 {
+		t.Fatal("successful sync must replace connections without preserving missing peers or local node")
 	}
 	restarted, err := newManager(m.Config, b)
 	if err != nil {
 		t.Fatal(err)
 	}
 	restored := restarted.PeerSnapshot()
-	if len(restored.Items) != 4 || restored.Connection.Connected || restored.Connection.LastSync == 0 {
-		t.Fatal("restart must preserve history but require fresh synchronization")
+	if len(restored.Items) != 0 || restored.Connection.Connected || restored.Connection.LastSync == 0 {
+		t.Fatal("restart must query before displaying connections")
 	}
 	restarted.Config.InstanceName = "another-network"
 	if len(restarted.PeerSnapshot().Items) != 0 {
@@ -109,7 +108,7 @@ func TestPeerHistoryFailureRestartAndScope(t *testing.T) {
 	if err := restarted.SyncPeers(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(restarted.PeerSnapshot().Items) != 2 {
+	if len(restarted.PeerSnapshot().Items) != 1 {
 		t.Fatal("new instance inherited old peers")
 	}
 	if len(m.Store.Snapshot().Credentials) != 0 || m.connection.Connected {
@@ -122,7 +121,12 @@ func TestCLIListPeersUsesArrayWithoutWeakeningCredentialCommands(t *testing.T) {
 		t.Skip("Unix CLI helper")
 	}
 	path := filepath.Join(t.TempDir(), "cli")
-	script := "#!/bin/sh\nprintf '%s' '[{\"id\":\"42\",\"hostname\":\"node\",\"cost\":\"Local\"}]'\n"
+	script := `#!/bin/sh
+case "$*" in
+  *-v*) printf '%s' '[{"route":{"peer_id":42},"peer":{"peer_id":42,"conns":[{"peer_id":42,"is_closed":false,"network_name":"office","secure_auth_level":1,"peer_identity_type":1}]}}]' ;;
+  *) printf '%s' '[{"id":"42","hostname":"node","cost":"p2p"}]' ;;
+esac
+`
 	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

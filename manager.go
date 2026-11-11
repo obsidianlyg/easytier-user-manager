@@ -265,6 +265,13 @@ func (m *Manager) Issue(ctx context.Context, o IssueOptions) (map[string]any, er
 		return nil, err
 	}
 	secret, err := m.Backend.Generate(ctx, c.ID, o)
+	publicKey := credentialPublicKey(secret)
+	if m.Config.Demo {
+		publicKey = demoPublicKey(c.ID)
+	}
+	if err == nil && publicKey == "" {
+		err = problem(502, "invalid_credential", "签发结果无法解析，请同步核实。")
+	}
 	if err != nil {
 		if saveErr := m.Store.Update(func(s *State) error {
 			for i := range s.Credentials {
@@ -280,6 +287,9 @@ func (m *Manager) Issue(ctx context.Context, o IssueOptions) (map[string]any, er
 		return nil, problem(502, "issue_unconfirmed", "签发结果未确认，已保留待核实记录。请先同步，避免重复签发。")
 	}
 	err = m.Store.Update(func(s *State) error {
+		if err := m.setCredentialPublicKey(s, c.ID, publicKey, "issued"); err != nil {
+			return err
+		}
 		for i := range s.Credentials {
 			if s.Credentials[i].ID == c.ID {
 				s.Credentials[i].Status = "active"
@@ -350,7 +360,7 @@ func (m *Manager) Revoke(ctx context.Context, id string) error {
 	return m.revoke(ctx, id)
 }
 
-func (m *Manager) Assign(id, personID, deviceName string) error {
+func (m *Manager) Assign(id, personID, deviceName, publicKey string) error {
 	m.op.Lock()
 	defer m.op.Unlock()
 	p, err := findPerson(m.Store.Snapshot(), personID)
@@ -372,6 +382,12 @@ func (m *Manager) Assign(id, personID, deviceName string) error {
 		return err
 	}
 	return m.Store.Update(func(s *State) error {
+		if publicKey != "" {
+			if err := m.setCredentialPublicKey(s, id, publicKey, "manual"); err != nil {
+				return err
+			}
+			audit(s, "credential_key_registered", p.Name, "管理员补录公钥 · "+id)
+		}
 		for i := range s.Credentials {
 			if s.Credentials[i].ID == id {
 				s.Credentials[i].PersonID = personID
@@ -507,6 +523,11 @@ func (m *Manager) seedDemo() error {
 			}
 			expiry := now() + int64(d.days)*86400
 			s.Credentials = append(s.Credentials, Credential{ID: id, PersonID: pid, DeviceName: d.label, Groups: []string{d.group}, AllowedProxyCIDRs: []string{}, ExpiresAt: expiry, Status: status, Source: source, CreatedAt: now() - 3*86400, UpdatedAt: now()})
+			if d.owner >= 0 {
+				if err := m.setCredentialPublicKey(s, id, demoPublicKey(id), "issued"); err != nil {
+					return err
+				}
+			}
 			if status != "revoked" {
 				s.DemoCredentials = append(s.DemoCredentials, RemoteCredential{ID: id, Groups: []string{d.group}, ExpiryUnix: expiry, Reusable: boolPointer(false), AllowedProxyCIDRs: []string{}})
 			}
